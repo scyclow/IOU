@@ -2,40 +2,52 @@
 pragma solidity ^0.8.2;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Burnable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 
-contract IOU is ERC721, ERC721Enumerable, ERC721Burnable, Ownable {
-  using Counters for Counters.Counter;
+contract IOU is ERC721, ERC721Burnable, Ownable {
   using Strings for uint256;
 
-  Counters.Counter private _tokenIdCounter;
+  uint private _tokenIdCounter;
 
   string baseUrl;
+  string baseTokenName;
+  string baseExternalUrl;
+  string baseImgUrl;
+  string imgExtension;
   string projectDescription;
   bool useURIPointer;
+  address predicateProxy;
+
+  mapping (uint256 => bool) public withdrawnTokens;
+  mapping (address => bool) public mintWhitelist;
+
+  event ProjectEvent(address indexed poster, string content);
+  event TokenEvent(address indexed poster, uint256 indexed tokenId, string content);
 
   constructor() ERC721("IOU", "IOU") {
-    baseUrl = "https://steviep.xyz/IOU/tokens/";
-    projectDescription = "This IOU is a bearer instrument. It should in no way be considered a promissory note. While this token may possibly be exchanged with other parties for monetary and non-monetary compensation, there should be no reasonable expectation of profit from holding this token. The issuer of this IOU makes no claims or guarantees that it will be redeemable for an asset or service of any kind at a later date. In no event shall the issuer be held liable for any damages arising from holding the IOU.";
+    baseUrl = "https://steviep.xyz/IOU/tokens/metadata/";
+    baseImgUrl = "https://steviep.xyz/IOU/tokens/images/";
+    baseExternalUrl = "https://steviep.xyz/IOU?token=";
+    baseTokenName = "IOU #";
+    imgExtension = ".png";
+    projectDescription = "This IOU is a bearer instrument. It should in no way be considered a promissory note. While this token may possibly be exchanged with other parties for monetary or non-monetary compensation, there should be no reasonable expectation of profit from holding it. The Issuer of this IOU makes no claims or guarantees that it will be redeemable for an asset or service of any kind at a later date. In no event shall the Issuer be held liable for any damages arising from holding the IOU. The Issuer reserves the right to revoke this IOU, change its thumbnail, name, or description, and issue new IOUs at their sole discretion.";
   }
 
-  function _baseURI() internal pure override returns (string memory) {
-    return "https://steviep.xyz/IOU";
+  function totalSupply() public view returns (uint) {
+    return _tokenIdCounter;
   }
 
   function safeMint(address to) public onlyOwner {
-    _safeMint(to, _tokenIdCounter.current());
-    _tokenIdCounter.increment();
+    _safeMint(to, _tokenIdCounter);
+    _tokenIdCounter++;
   }
 
   function batchSafeMint(address[] memory addresses) public onlyOwner {
     for (uint i = 0; i < addresses.length; i++) {
-      _safeMint(addresses[i], _tokenIdCounter.current());
-      _tokenIdCounter.increment();
+      _safeMint(addresses[i], _tokenIdCounter);
+      _tokenIdCounter++;
     }
   }
 
@@ -43,23 +55,21 @@ contract IOU is ERC721, ERC721Enumerable, ERC721Burnable, Ownable {
   function tokenURI(uint256 tokenId) public view virtual override returns (string memory) {
     require(_exists(tokenId), "ERC721Metadata: URI query for nonexistent token");
 
+    string memory tokenString = tokenId.toString();
+
     if (useURIPointer) {
-      return string(abi.encodePacked(baseUrl, tokenId.toString()));
+      return string(abi.encodePacked(baseUrl, tokenString));
     }
 
     string memory json = Base64.encode(
       bytes(
         string(
           abi.encodePacked(
-            '{"name": "IOU #',
-            tokenId,
-            '", "description": "',
-            projectDescription,
-            '", "image": "',
-            baseUrl,
-            'images/',
-            tokenId.toString(),
-            '.png"}'
+            '{"name": "', baseTokenName, tokenString,
+            '", "description": "', projectDescription,
+            '", "image": "', baseImgUrl, tokenString, imgExtension,
+            '", "external_url": "', baseExternalUrl, tokenString,
+            '"}'
           )
         )
       )
@@ -77,31 +87,40 @@ contract IOU is ERC721, ERC721Enumerable, ERC721Burnable, Ownable {
     baseUrl = _baseUrl;
   }
 
-  function updateProjectDescription(string memory _projectDescription) public onlyOwner {
+  function updateProjectDescription(
+    string memory _projectDescription
+  ) public onlyOwner {
     projectDescription = _projectDescription;
   }
 
-
-
-
-
-
-  // The following functions are overrides required by Solidity.
-
-  function _beforeTokenTransfer(address from, address to, uint256 tokenId)
-    internal
-    override(ERC721, ERC721Enumerable)
-  {
-    super._beforeTokenTransfer(from, to, tokenId);
+  function updateMetadataParams(
+    string memory _baseTokenName,
+    string memory _baseImgUrl,
+    string memory _imgExtension,
+    string memory _baseExternalUrl
+  ) public onlyOwner {
+    baseTokenName = _baseTokenName;
+    baseImgUrl = _baseImgUrl;
+    imgExtension = _imgExtension;
+    baseExternalUrl = _baseExternalUrl;
   }
 
-  function supportsInterface(bytes4 interfaceId)
-    public
-    view
-    override(ERC721, ERC721Enumerable)
-    returns (bool)
-  {
-    return super.supportsInterface(interfaceId);
+
+  function revoke(uint256 tokenId) public onlyOwner {
+    address owner = ownerOf(tokenId);
+    _transfer(owner, msg.sender, tokenId);
+  }
+
+  function emitProjectEvent(string memory _content) public onlyOwner {
+    emit ProjectEvent(_msgSender(), _content);
+  }
+
+  function emitTokenEvent(uint256 tokenId, string memory _content) public {
+    require(
+      owner() == _msgSender() || ERC721.ownerOf(tokenId) == _msgSender(),
+      "Only project or token owner can emit token event"
+    );
+    emit TokenEvent(_msgSender(), tokenId, _content);
   }
 }
 
